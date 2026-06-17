@@ -10,7 +10,7 @@ st.set_page_config(page_title="Submeter Billing Portal", page_icon="⚡", layout
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# --- SECURE GOOGLE SHEETS CONNECTION ---
+# --- SECURE GOOGLE SHEETS CONNECTION (For Billing Only) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
@@ -19,16 +19,6 @@ def load_data():
     df['Date'] = pd.to_datetime(df['Date'])
     df['Start Date'] = pd.to_datetime(df['Start Date'])
     return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
-
-def load_announcement():
-    try:
-        # Changed from "Announcements" to 1 to target the second tab position directly
-        df = conn.read(worksheet=1, ttl="0m")
-        if not df.empty:
-            return df.iloc[0]['Subject'], df.iloc[0]['Details']
-    except Exception:
-        pass
-    return "No Announcement", "There are no current updates at this time."
 
 def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate):
     df = load_data()
@@ -51,27 +41,32 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
     updated_df = pd.concat([new_row, df], ignore_index=True)
     conn.update(worksheet=0, data=updated_df)
 
-def save_announcement(subject, details):
-    # Changed from "Announcements" to 1 to push directly to the second tab position
-    announce_df = pd.DataFrame([{"Subject": subject, "Details": details}])
-    conn.update(worksheet=1, data=announce_df)
-
 def delete_entry(index_to_drop):
     df = load_data()
     df = df.drop(index=index_to_drop)
     conn.update(worksheet=0, data=df)
 
+
+# --- SERVER-SIDE ANNOUNCEMENT MEMORY CACHE ---
+# This dictionary stores the text directly inside the app's server RAM memory
+@st.cache_resource
+def get_server_announcement():
+    return {
+        "subject": "No Announcement",
+        "details": "There are no current updates at this time."
+    }
+
 # App Init
 df_history = load_data()
 latest_entry = df_history.iloc[0]
-ann_subject, ann_details = load_announcement()
+announcement = get_server_announcement()
 
 st.title("Submeter Billing Dashboard")
 st.markdown("---")
 
 # --- PUBLIC CLIENT VIEW: ANNOUNCEMENT BANNER ---
-if ann_subject and ann_subject != "No Announcement":
-    st.info(f"📢 **NOTICE: {ann_subject.upper()}** \n\n {ann_details}")
+if announcement["subject"] != "No Announcement":
+    st.info(f"📢 **NOTICE: {announcement['subject'].upper()}** \n\n {announcement['details']}")
     st.markdown("---")
 
 # --- SIDEBAR LOGIN / LOGOUT SYSTEM ---
@@ -94,12 +89,13 @@ else:
 if st.session_state.logged_in:
     st.header("🛠️ Admin Control Panel")
     
-    # Broadcast System Form
-    st.subheader("📢 Post Portal Announcement")
+    # Broadcast System Form (Saves directly to server RAM variables)
+    st.subheader("📢 Post Server-Side Announcement")
     with st.form("announcement_form"):
-        new_subject = st.text_input("Announcement Subject", value=ann_subject if ann_subject != "No Announcement" else "")
-        new_details = st.text_area("Announcement Details", value=ann_details if ann_details != "There are no current updates at this time." else "")
+        new_subject = st.text_input("Announcement Subject", value=announcement["subject"] if announcement["subject"] != "No Announcement" else "")
+        new_details = st.text_area("Announcement Details", value=announcement["details"] if announcement["details"] != "There are no current updates at this time." else "")
         col_ann_btn1, col_ann_btn2 = st.columns([1, 5])
+        
         with col_ann_btn1:
             post_btn = st.form_submit_button("Post Alert")
         with col_ann_btn2:
@@ -107,15 +103,17 @@ if st.session_state.logged_in:
             
         if post_btn:
             if new_subject.strip() and new_details.strip():
-                save_announcement(new_subject, new_details)
-                st.success("🎉 Announcement updated on live display!")
+                announcement["subject"] = new_subject
+                announcement["details"] = new_details
+                st.success("🎉 Saved directly to app server memory! Refreshing dashboard...")
                 st.rerun()
             else:
                 st.error("❌ Both Subject and Details fields must be filled out.")
                 
         if clear_ann_btn:
-            save_announcement("No Announcement", "There are no current updates at this time.")
-            st.success("🗑️ Active announcement cleared.")
+            announcement["subject"] = "No Announcement"
+            announcement["details"] = "There are no current updates at this time."
+            st.success("🗑️ Active announcement cleared from server memory.")
             st.rerun()
 
     st.markdown("---")
