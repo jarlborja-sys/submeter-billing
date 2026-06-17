@@ -14,7 +14,7 @@ if "logged_in" not in st.session_state:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    # worksheet=0 targets the primary billing data tab
+    # worksheet=0 targets the primary billing data tab (Tab 1)
     df = conn.read(worksheet=0, ttl="0m")
     df['Date'] = pd.to_datetime(df['Date'])
     df['Start Date'] = pd.to_datetime(df['Start Date'])
@@ -22,8 +22,8 @@ def load_data():
 
 def load_announcement():
     try:
-        # Reads from our newly created second tab named "Announcements"
-        df = conn.read(worksheet="Announcements", ttl="0m")
+        # Changed from "Announcements" to 1 to target the second tab position directly
+        df = conn.read(worksheet=1, ttl="0m")
         if not df.empty:
             return df.iloc[0]['Subject'], df.iloc[0]['Details']
     except Exception:
@@ -52,9 +52,9 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
     conn.update(worksheet=0, data=updated_df)
 
 def save_announcement(subject, details):
-    # Overwrites the row in the Announcements tab
+    # Changed from "Announcements" to 1 to push directly to the second tab position
     announce_df = pd.DataFrame([{"Subject": subject, "Details": details}])
-    conn.update(worksheet="Announcements", data=announce_df)
+    conn.update(worksheet=1, data=announce_df)
 
 def delete_entry(index_to_drop):
     df = load_data()
@@ -94,7 +94,7 @@ else:
 if st.session_state.logged_in:
     st.header("🛠️ Admin Control Panel")
     
-    # NEW FEATURE: Broadcast System Form
+    # Broadcast System Form
     st.subheader("📢 Post Portal Announcement")
     with st.form("announcement_form"):
         new_subject = st.text_input("Announcement Subject", value=ann_subject if ann_subject != "No Announcement" else "")
