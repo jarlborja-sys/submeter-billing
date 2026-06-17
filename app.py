@@ -128,7 +128,7 @@ st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})
 
 start_formatted = latest_entry['Start Date'].strftime('%B %d, %Y')
 end_formatted = latest_entry['Date'].strftime('%B %d, %Y')
-st.subheader(f"📅 Reading Period: {start_formatted} — {end_formatted}")
+st.subheader(f"Reading Period: {start_formatted} → {end_formatted}")
 
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
