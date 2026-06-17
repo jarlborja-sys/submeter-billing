@@ -83,7 +83,7 @@ st.markdown("---")
 st.sidebar.header("Portal Access")
 
 if not st.session_state.logged_in:
-    password_input = st.sidebar.text_input("Enter Admin Password", type="password")
+    password_input = st.sidebar.text_input("Password", type="password")
     if st.sidebar.button("Login"):
         if password_input == "admin123":
             st.session_state.logged_in = True
