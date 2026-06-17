@@ -75,7 +75,7 @@ st.sidebar.header("Portal Access")
 if not st.session_state.logged_in:
     # User is currently logged out (Client view mode)
     password_input = st.sidebar.text_input("Enter Admin Password", type="password")
-    if st.sidebar.button("Login as Admin"):
+    if st.sidebar.button("Login"):
         # Change 'admin123' to your desired secure password
         if password_input == "admin123":
             st.session_state.logged_in = True
