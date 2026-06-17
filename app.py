@@ -8,6 +8,10 @@ st.set_page_config(page_title="Submeter Billing Portal", page_icon="⚡", layout
 
 DB_FILE = "billing_history.csv"
 
+# Initialize session state for tracking login status
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
 # Load data helper
 def load_data():
     if os.path.exists(DB_FILE):
@@ -42,7 +46,6 @@ def save_new_reading(prev_r, curr_r, current_rate, date_str):
         "Total Bill (₱)": total_bill
     }])
     
-    # Check if date already exists to avoid duplication
     if pd.to_datetime(date_str) in df['Date'].values:
         df = df[df['Date'] != pd.to_datetime(date_str)]
         
@@ -54,7 +57,6 @@ def delete_entry(index_to_drop):
     df = load_data()
     df = df.drop(index=index_to_drop)
     if len(df) == 0:
-        # If we delete everything, just delete the file so it resets next time
         if os.path.exists(DB_FILE):
             os.remove(DB_FILE)
     else:
@@ -64,20 +66,35 @@ def delete_entry(index_to_drop):
 df_history = load_data()
 latest_entry = df_history.iloc[0]
 
-st.title("⚡ Submeter Billing Dashboard")
+st.title("Submeter Billing Dashboard")
 st.markdown("---")
 
-# Sidebar Configuration for Admin Login
-st.sidebar.header("🔐 Admin Access")
-admin_password = st.sidebar.text_input("Enter Admin Password", type="password")
+# --- SIDEBAR LOGIN / LOGOUT SYSTEM ---
+st.sidebar.header("Portal Access")
 
-# ADMIN PANEL
-if admin_password == "admin123":
-    st.sidebar.success("Logged In as Admin")
+if not st.session_state.logged_in:
+    # User is currently logged out (Client view mode)
+    password_input = st.sidebar.text_input("Enter Admin Password", type="password")
+    if st.sidebar.button("Login as Admin"):
+        # Change 'admin123' to your desired secure password
+        if password_input == "admin123":
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.sidebar.error("Incorrect Password")
+else:
+    # User is currently logged in (Admin mode)
+    st.sidebar.success("Logged in")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+# --- ADMIN PANEL INTERFACE ---
+if st.session_state.logged_in:
     st.header("🛠️ Admin Control Panel")
     
     # Section 1: Add/Update Form
-    st.subheader("➕ Add or Update Reading")
+    st.subheader("Add or Update Reading")
     with st.form("reading_form", clear_on_submit=True):
         col_input1, col_input2, col_input3, col_input4 = st.columns(4)
         
@@ -104,7 +121,6 @@ if admin_password == "admin123":
     st.subheader("🗑️ Remove / Manage Entries")
     st.write("Click the trash button next to any entry to permanently remove it.")
     
-    # Loop through the rows to show a custom layout with a delete button for each entry
     for idx, row in df_history.iterrows():
         date_display = row['Date'].strftime('%Y-%m-%d')
         col_del1, col_del2 = st.columns([5, 1])
@@ -112,18 +128,15 @@ if admin_password == "admin123":
         with col_del1:
             st.info(f"📅 **{date_display}** | Consumption: {row['Consumption (kWh)']} kWh | Rate: ₱{row['Rate (₱)']:.2f} | Total: ₱{row['Total Bill (₱)']:,.2f}")
         with col_del2:
-            # Create a unique key for every row button using its index
             if st.button(f"🗑️ Delete", key=f"del_{idx}"):
                 delete_entry(idx)
                 st.warning(f"Removed entry for {date_display}!")
                 st.rerun()
                 
     st.markdown("---")
-elif admin_password != "":
-    st.sidebar.error("Incorrect password")
 
-# CLIENT VIEW (Publicly visible)
-st.header(f"📋 Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
+# --- PUBLIC CLIENT VIEW ---
+st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
 
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
@@ -134,13 +147,13 @@ with m_col3:
     st.metric(label="Total Amount Due", value=f"₱{latest_entry['Total Bill (₱)']:,.2f}")
 
 # Detail breakdown box
-with st.expander("🔍 View Breakdown Details"):
+with st.expander("View Breakdown Details"):
     st.write(f"**Previous Reading:** {latest_entry['Previous Reading (kWh)']:,.2f} kWh")
     st.write(f"**Current Reading:** {latest_entry['Current Reading (kWh)']:,.2f} kWh")
     st.write(f"**Formula Used:** $(Current - Previous) \\times Rate = Total$")
 
 st.markdown("---")
-st.header("📈 Historical Usage & Trends")
+st.header("Historical Usage & Trends")
 
 # Graph and Data logs
 col_graph, col_table = st.columns([2, 1])
