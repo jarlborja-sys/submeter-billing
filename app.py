@@ -54,11 +54,11 @@ def save_new_reading(prev_r, curr_r, date_str):
 df_history = load_data()
 latest_entry = df_history.iloc[0]
 
-st.title("⚡ Submeter Billing Dashboard")
+st.title("Submeter Billing Dashboard")
 st.markdown("---")
 
 # Sidebar Configuration for Admin Login
-st.sidebar.header("🔐 Admin Access")
+st.sidebar.header("Admin Access")
 admin_password = st.sidebar.text_input("Enter Admin Password", type="password")
 
 # ADMIN PANEL (Only visible with correct password)
@@ -92,7 +92,7 @@ elif admin_password != "":
     st.sidebar.error("Incorrect password")
 
 # CLIENT VIEW (Publicly visible)
-st.header(f"📋 Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
+st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
 
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
@@ -109,7 +109,7 @@ with st.expander("🔍 View Breakdown Details"):
     st.write(f"**Formula Used:** $(Current - Previous) \\times Rate = Total$")
 
 st.markdown("---")
-st.header("📈 Historical Usage & Trends")
+st.header("Historical Usage & Trends")
 
 # Graph and Data logs
 col_graph, col_table = st.columns([2, 1])
