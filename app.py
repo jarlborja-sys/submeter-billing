@@ -1,38 +1,24 @@
 import streamlit as st
 import pandas as pd
-import os
+from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Submeter Billing", page_icon="⚡", layout="wide")
+# Page Configuration
+st.set_page_config(page_title="Submeter Billing Portal", page_icon="⚡", layout="wide")
 
-DB_FILE = "billing_history.csv"
-
+# Initialize session state for tracking login status
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# --- SECURE GOOGLE SHEETS CONNECTION ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 def load_data():
-    if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        df['Date'] = pd.to_datetime(df['Date'])
-        if 'Start Date' in df.columns:
-            df['Start Date'] = pd.to_datetime(df['Start Date'])
-        else:
-            df['Start Date'] = df['Date'] - timedelta(days=30)
-        return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
-    else:
-        today = datetime.now()
-        thirty_days_ago = today - timedelta(days=30)
-        initial_data = pd.DataFrame([{
-            "Start Date": pd.to_datetime(thirty_days_ago.strftime("%Y-%m-%d")),
-            "Date": pd.to_datetime(today.strftime("%Y-%m-%d")),
-            "Previous Reading (kWh)": 1000.0,
-            "Current Reading (kWh)": 1150.0,
-            "Consumption (kWh)": 150.0,
-            "Rate (₱)": 12.00,
-            "Total Bill (₱)": 150.0 * 12.00
-        }])
-        initial_data.to_csv(DB_FILE, index=False)
-        return initial_data
+    # Reads data straight from your private Google Sheet live
+    df = conn.read(worksheet="Sheet1", ttl="0m")
+    df['Date'] = pd.to_datetime(df['Date'])
+    df['Start Date'] = pd.to_datetime(df['Start Date'])
+    return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
 
 def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate):
     df = load_data()
@@ -40,8 +26,8 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
     total_bill = consumption * current_rate
     
     new_row = pd.DataFrame([{
-        "Start Date": pd.to_datetime(start_date_str),
-        "Date": pd.to_datetime(end_date_str),
+        "Start Date": start_date_str,
+        "Date": end_date_str,
         "Previous Reading (kWh)": prev_r,
         "Current Reading (kWh)": curr_r,
         "Consumption (kWh)": consumption,
@@ -49,21 +35,21 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
         "Total Bill (₱)": total_bill
     }])
     
+    # Overwrite duplicate end dates if they exist
     if pd.to_datetime(end_date_str) in df['Date'].values:
         df = df[df['Date'] != pd.to_datetime(end_date_str)]
         
     updated_df = pd.concat([new_row, df], ignore_index=True)
-    updated_df.to_csv(DB_FILE, index=False)
+    
+    # Push the updated data back up to your Google Sheet
+    conn.update(worksheet="Sheet1", data=updated_df)
 
 def delete_entry(index_to_drop):
     df = load_data()
     df = df.drop(index=index_to_drop)
-    if len(df) == 0:
-        if os.path.exists(DB_FILE):
-            os.remove(DB_FILE)
-    else:
-        df.to_csv(DB_FILE, index=False)
+    conn.update(worksheet="Sheet1", data=df)
 
+# App Init
 df_history = load_data()
 latest_entry = df_history.iloc[0]
 
@@ -72,9 +58,8 @@ st.markdown("---")
 
 # --- SIDEBAR LOGIN / LOGOUT SYSTEM ---
 st.sidebar.header("Portal Access")
-
 if not st.session_state.logged_in:
-    password_input = st.sidebar.text_input("Password", type="password")
+    password_input = st.sidebar.text_input("Enter Admin Password", type="password")
     if st.sidebar.button("Login"):
         if password_input == "admin123":
             st.session_state.logged_in = True
@@ -93,7 +78,6 @@ if st.session_state.logged_in:
     
     st.subheader("Add or Update Reading")
     with st.form("reading_form", clear_on_submit=True):
-        # Increased to 5 columns to cleanly fit both dates
         col_input1, col_input2, col_input3, col_input4, col_input5 = st.columns(5)
         
         with col_input1:
@@ -118,14 +102,12 @@ if st.session_state.logged_in:
                     curr_val, 
                     current_rate
                 )
-                st.success("🎉 Dashboard successfully updated! Refreshing...")
+                st.success("🎉 Google Sheet successfully updated! Refreshing...")
                 st.rerun()
             else:
                 st.error("❌ Current reading cannot be less than the previous reading.")
                 
     st.subheader("🗑️ Remove / Manage Entries")
-    st.write("Click the trash button next to any entry to permanently remove it.")
-    
     for idx, row in df_history.iterrows():
         s_date_display = row['Start Date'].strftime('%Y-%m-%d')
         e_date_display = row['Date'].strftime('%Y-%m-%d')
@@ -136,7 +118,7 @@ if st.session_state.logged_in:
         with col_del2:
             if st.button(f"🗑️ Delete", key=f"del_{idx}"):
                 delete_entry(idx)
-                st.warning(f"Removed entry for {e_date_display}!")
+                st.warning(f"Removed entry!")
                 st.rerun()
                 
     st.markdown("---")
@@ -146,7 +128,7 @@ st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})
 
 start_formatted = latest_entry['Start Date'].strftime('%B %d, %Y')
 end_formatted = latest_entry['Date'].strftime('%B %d, %Y')
-st.subheader(f"Reading Period: {start_formatted} → {end_formatted}")
+st.subheader(f"📅 Reading Period: {start_formatted} — {end_formatted}")
 
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
@@ -160,11 +142,9 @@ with st.expander("View Breakdown Details"):
     st.write(f"**Billing Cycle:** {start_formatted} to {end_formatted}")
     st.write(f"**Previous Reading:** {latest_entry['Previous Reading (kWh)']:,.2f} kWh")
     st.write(f"**Current Reading:** {latest_entry['Current Reading (kWh)']:,.2f} kWh")
-    st.write(f"**Formula Used:** $(Current - Previous) \\times Rate = Total$")
 
 st.markdown("---")
 st.header("Historical Usage & Trends")
-
 col_graph, col_table = st.columns([2, 1])
 
 with col_graph:
@@ -175,6 +155,4 @@ with col_table:
     display_df = df_history.copy()
     display_df['Start Date'] = display_df['Start Date'].dt.strftime('%Y-%m-%d')
     display_df['End Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
-    
-    final_table_df = display_df[['Start Date', 'End Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']]
-    st.dataframe(final_table_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df[['Start Date', 'End Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']], use_container_width=True, hide_index=True)
