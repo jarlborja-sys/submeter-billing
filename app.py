@@ -13,7 +13,7 @@ def load_data():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
         df['Date'] = pd.to_datetime(df['Date'])
-        return df.sort_values(by='Date', ascending=False)
+        return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
     else:
         # Initial default data if file doesn't exist yet
         initial_data = pd.DataFrame([{
@@ -49,22 +49,35 @@ def save_new_reading(prev_r, curr_r, current_rate, date_str):
     updated_df = pd.concat([new_row, df], ignore_index=True)
     updated_df.to_csv(DB_FILE, index=False)
 
+# Delete single entry helper
+def delete_entry(index_to_drop):
+    df = load_data()
+    df = df.drop(index=index_to_drop)
+    if len(df) == 0:
+        # If we delete everything, just delete the file so it resets next time
+        if os.path.exists(DB_FILE):
+            os.remove(DB_FILE)
+    else:
+        df.to_csv(DB_FILE, index=False)
+
 # App Init
 df_history = load_data()
 latest_entry = df_history.iloc[0]
 
-st.title("Submeter Billing Dashboard")
+st.title("⚡ Submeter Billing Dashboard")
 st.markdown("---")
 
 # Sidebar Configuration for Admin Login
 st.sidebar.header("🔐 Admin Access")
 admin_password = st.sidebar.text_input("Enter Admin Password", type="password")
 
-# ADMIN PANEL (Only visible with correct password)
+# ADMIN PANEL
 if admin_password == "admin123":
     st.sidebar.success("Logged In as Admin")
-    st.header("🛠️ Admin Control Panel (Update Readings & Rates)")
+    st.header("🛠️ Admin Control Panel")
     
+    # Section 1: Add/Update Form
+    st.subheader("➕ Add or Update Reading")
     with st.form("reading_form", clear_on_submit=True):
         col_input1, col_input2, col_input3, col_input4 = st.columns(4)
         
@@ -75,7 +88,6 @@ if admin_password == "admin123":
         with col_input3:
             curr_val = st.number_input("Current Reading (kWh)", value=float(latest_entry["Current Reading (kWh)"]))
         with col_input4:
-            # You can now manually type or change the rate here every month
             current_rate = st.number_input("Rate per kWh (₱)", value=float(latest_entry["Rate (₱)"]), step=0.01)
             
         submit_btn = st.form_submit_button("Update Dashboard")
@@ -87,6 +99,25 @@ if admin_password == "admin123":
                 st.rerun()
             else:
                 st.error("❌ Current reading cannot be less than the previous reading.")
+                
+    # Section 2: Manage & Remove Individual Entries
+    st.subheader("🗑️ Remove / Manage Entries")
+    st.write("Click the trash button next to any entry to permanently remove it.")
+    
+    # Loop through the rows to show a custom layout with a delete button for each entry
+    for idx, row in df_history.iterrows():
+        date_display = row['Date'].strftime('%Y-%m-%d')
+        col_del1, col_del2 = st.columns([5, 1])
+        
+        with col_del1:
+            st.info(f"📅 **{date_display}** | Consumption: {row['Consumption (kWh)']} kWh | Rate: ₱{row['Rate (₱)']:.2f} | Total: ₱{row['Total Bill (₱)']:,.2f}")
+        with col_del2:
+            # Create a unique key for every row button using its index
+            if st.button(f"🗑️ Delete", key=f"del_{idx}"):
+                delete_entry(idx)
+                st.warning(f"Removed entry for {date_display}!")
+                st.rerun()
+                
     st.markdown("---")
 elif admin_password != "":
     st.sidebar.error("Incorrect password")
@@ -103,13 +134,13 @@ with m_col3:
     st.metric(label="Total Amount Due", value=f"₱{latest_entry['Total Bill (₱)']:,.2f}")
 
 # Detail breakdown box
-with st.expander("View Breakdown Details"):
+with st.expander("🔍 View Breakdown Details"):
     st.write(f"**Previous Reading:** {latest_entry['Previous Reading (kWh)']:,.2f} kWh")
     st.write(f"**Current Reading:** {latest_entry['Current Reading (kWh)']:,.2f} kWh")
     st.write(f"**Formula Used:** $(Current - Previous) \\times Rate = Total$")
 
 st.markdown("---")
-st.header("Historical Usage & Trends")
+st.header("📈 Historical Usage & Trends")
 
 # Graph and Data logs
 col_graph, col_table = st.columns([2, 1])
@@ -119,7 +150,6 @@ with col_graph:
     st.line_chart(data=chart_df, x='Date', y='Consumption (kWh)', use_container_width=True)
 
 with col_table:
-    # Display historical log table for client showing the specific rate for that month
     display_df = df_history[['Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']].copy()
     display_df['Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
     st.dataframe(display_df, use_container_width=True, hide_index=True)
