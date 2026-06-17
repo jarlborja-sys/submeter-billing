@@ -14,11 +14,21 @@ if "logged_in" not in st.session_state:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    # worksheet=0 targets the first tab directly, bypassing Google's HTTP 400 error bug
+    # worksheet=0 targets the primary billing data tab
     df = conn.read(worksheet=0, ttl="0m")
     df['Date'] = pd.to_datetime(df['Date'])
     df['Start Date'] = pd.to_datetime(df['Start Date'])
     return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
+
+def load_announcement():
+    try:
+        # Reads from our newly created second tab named "Announcements"
+        df = conn.read(worksheet="Announcements", ttl="0m")
+        if not df.empty:
+            return df.iloc[0]['Subject'], df.iloc[0]['Details']
+    except Exception:
+        pass
+    return "No Announcement", "There are no current updates at this time."
 
 def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate):
     df = load_data()
@@ -35,27 +45,34 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
         "Total Bill (₱)": total_bill
     }])
     
-    # Overwrite duplicate end dates if they exist
     if pd.to_datetime(end_date_str) in df['Date'].values:
         df = df[df['Date'] != pd.to_datetime(end_date_str)]
         
     updated_df = pd.concat([new_row, df], ignore_index=True)
-    
-    # Push the updated data back up to your Google Sheet using worksheet index 0
     conn.update(worksheet=0, data=updated_df)
+
+def save_announcement(subject, details):
+    # Overwrites the row in the Announcements tab
+    announce_df = pd.DataFrame([{"Subject": subject, "Details": details}])
+    conn.update(worksheet="Announcements", data=announce_df)
 
 def delete_entry(index_to_drop):
     df = load_data()
     df = df.drop(index=index_to_drop)
-    # Delete row updates straight to sheet index 0
     conn.update(worksheet=0, data=df)
 
 # App Init
 df_history = load_data()
 latest_entry = df_history.iloc[0]
+ann_subject, ann_details = load_announcement()
 
 st.title("Submeter Billing Dashboard")
 st.markdown("---")
+
+# --- PUBLIC CLIENT VIEW: ANNOUNCEMENT BANNER ---
+if ann_subject and ann_subject != "No Announcement":
+    st.info(f"📢 **NOTICE: {ann_subject.upper()}** \n\n {ann_details}")
+    st.markdown("---")
 
 # --- SIDEBAR LOGIN / LOGOUT SYSTEM ---
 st.sidebar.header("Portal Access")
@@ -77,7 +94,32 @@ else:
 if st.session_state.logged_in:
     st.header("🛠️ Admin Control Panel")
     
-    st.subheader("Add or Update Reading")
+    # NEW FEATURE: Broadcast System Form
+    st.subheader("📢 Post Portal Announcement")
+    with st.form("announcement_form"):
+        new_subject = st.text_input("Announcement Subject", value=ann_subject if ann_subject != "No Announcement" else "")
+        new_details = st.text_area("Announcement Details", value=ann_details if ann_details != "There are no current updates at this time." else "")
+        col_ann_btn1, col_ann_btn2 = st.columns([1, 5])
+        with col_ann_btn1:
+            post_btn = st.form_submit_button("Post Alert")
+        with col_ann_btn2:
+            clear_ann_btn = st.form_submit_button("Clear Active Alert")
+            
+        if post_btn:
+            if new_subject.strip() and new_details.strip():
+                save_announcement(new_subject, new_details)
+                st.success("🎉 Announcement updated on live display!")
+                st.rerun()
+            else:
+                st.error("❌ Both Subject and Details fields must be filled out.")
+                
+        if clear_ann_btn:
+            save_announcement("No Announcement", "There are no current updates at this time.")
+            st.success("🗑️ Active announcement cleared.")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("📊 Add or Update Reading")
     with st.form("reading_form", clear_on_submit=True):
         col_input1, col_input2, col_input3, col_input4, col_input5 = st.columns(5)
         
