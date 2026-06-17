@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Page Configuration
 st.set_page_config(page_title="Submeter Billing Portal", page_icon="⚡", layout="wide")
@@ -17,11 +17,19 @@ def load_data():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
         df['Date'] = pd.to_datetime(df['Date'])
+        # Ensure Start Date exists for backwards compatibility
+        if 'Start Date' in df.columns:
+            df['Start Date'] = pd.to_datetime(df['Start Date'])
+        else:
+            df['Start Date'] = df['Date'] - timedelta(days=30)
         return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
     else:
-        # Initial default data if file doesn't exist yet
+        # Initial default data if file doesn't exist yet (including Start Date)
+        today = datetime.now()
+        thirty_days_ago = today - timedelta(days=30)
         initial_data = pd.DataFrame([{
-            "Date": pd.to_datetime(datetime.now().strftime("%Y-%m-%d")),
+            "Start Date": pd.to_datetime(thirty_days_ago.strftime("%Y-%m-%d")),
+            "Date": pd.to_datetime(today.strftime("%Y-%m-%d")),
             "Previous Reading (kWh)": 1000.0,
             "Current Reading (kWh)": 1150.0,
             "Consumption (kWh)": 150.0,
@@ -32,13 +40,14 @@ def load_data():
         return initial_data
 
 # Save data helper
-def save_new_reading(prev_r, curr_r, current_rate, date_str):
+def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate):
     df = load_data()
     consumption = curr_r - prev_r
     total_bill = consumption * current_rate
     
     new_row = pd.DataFrame([{
-        "Date": pd.to_datetime(date_str),
+        "Start Date": pd.to_datetime(start_date_str),
+        "Date": pd.to_datetime(end_date_str),
         "Previous Reading (kWh)": prev_r,
         "Current Reading (kWh)": curr_r,
         "Consumption (kWh)": consumption,
@@ -46,8 +55,9 @@ def save_new_reading(prev_r, curr_r, current_rate, date_str):
         "Total Bill (₱)": total_bill
     }])
     
-    if pd.to_datetime(date_str) in df['Date'].values:
-        df = df[df['Date'] != pd.to_datetime(date_str)]
+    # Overwrite if an entry with the exact same end date already exists
+    if pd.to_datetime(end_date_str) in df['Date'].values:
+        df = df[df['Date'] != pd.to_datetime(end_date_str)]
         
     updated_df = pd.concat([new_row, df], ignore_index=True)
     updated_df.to_csv(DB_FILE, index=False)
@@ -73,17 +83,14 @@ st.markdown("---")
 st.sidebar.header("Portal Access")
 
 if not st.session_state.logged_in:
-    # User is currently logged out (Client view mode)
     password_input = st.sidebar.text_input("Enter Admin Password", type="password")
     if st.sidebar.button("Login"):
-        # Change 'admin123' to your desired secure password
         if password_input == "admin123":
             st.session_state.logged_in = True
             st.rerun()
         else:
             st.sidebar.error("Incorrect Password")
 else:
-    # User is currently logged in (Admin mode)
     st.sidebar.success("Logged in")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
@@ -93,50 +100,63 @@ else:
 if st.session_state.logged_in:
     st.header("🛠️ Admin Control Panel")
     
-    # Section 1: Add/Update Form
     st.subheader("Add or Update Reading")
     with st.form("reading_form", clear_on_submit=True):
-        col_input1, col_input2, col_input3, col_input4 = st.columns(4)
+        # Increased to 5 columns to cleanly fit both dates
+        col_input1, col_input2, col_input3, col_input4, col_input5 = st.columns(5)
         
         with col_input1:
-            billing_date = st.date_input("Billing Date", datetime.now())
+            start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
         with col_input2:
-            prev_val = st.number_input("Previous Reading (kWh)", value=float(latest_entry["Current Reading (kWh)"]))
+            billing_date = st.date_input("End Date", datetime.now())
         with col_input3:
-            curr_val = st.number_input("Current Reading (kWh)", value=float(latest_entry["Current Reading (kWh)"]))
+            prev_val = st.number_input("Previous Reading (kWh)", value=float(latest_entry["Current Reading (kWh)"]))
         with col_input4:
+            curr_val = st.number_input("Current Reading (kWh)", value=float(latest_entry["Current Reading (kWh)"]))
+        with col_input5:
             current_rate = st.number_input("Rate per kWh (₱)", value=float(latest_entry["Rate (₱)"]), step=0.01)
             
         submit_btn = st.form_submit_button("Update Dashboard")
         
         if submit_btn:
             if curr_val >= prev_val:
-                save_new_reading(prev_val, curr_val, current_rate, billing_date.strftime("%Y-%m-%d"))
+                save_new_reading(
+                    start_date.strftime("%Y-%m-%d"),
+                    billing_date.strftime("%Y-%m-%d"),
+                    prev_val, 
+                    curr_val, 
+                    current_rate
+                )
                 st.success("🎉 Dashboard successfully updated! Refreshing...")
                 st.rerun()
             else:
                 st.error("❌ Current reading cannot be less than the previous reading.")
                 
-    # Section 2: Manage & Remove Individual Entries
     st.subheader("🗑️ Remove / Manage Entries")
     st.write("Click the trash button next to any entry to permanently remove it.")
     
     for idx, row in df_history.iterrows():
-        date_display = row['Date'].strftime('%Y-%m-%d')
+        s_date_display = row['Start Date'].strftime('%Y-%m-%d')
+        e_date_display = row['Date'].strftime('%Y-%m-%d')
         col_del1, col_del2 = st.columns([5, 1])
         
         with col_del1:
-            st.info(f"📅 **{date_display}** | Consumption: {row['Consumption (kWh)']} kWh | Rate: ₱{row['Rate (₱)']:.2f} | Total: ₱{row['Total Bill (₱)']:,.2f}")
+            st.info(f"📅 **{s_date_display} to {e_date_display}** | Consumption: {row['Consumption (kWh)']} kWh | Rate: ₱{row['Rate (₱)']:.2f} | Total: ₱{row['Total Bill (₱)']:,.2f}")
         with col_del2:
             if st.button(f"🗑️ Delete", key=f"del_{idx}"):
                 delete_entry(idx)
-                st.warning(f"Removed entry for {date_display}!")
+                st.warning(f"Removed entry for {e_date_display}!")
                 st.rerun()
                 
     st.markdown("---")
 
 # --- PUBLIC CLIENT VIEW ---
 st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
+
+# Displays the coverage period cleanly right above the consumption metrics card layout
+start_formatted = latest_entry['Start Date'].strftime('%B %d, %Y')
+end_formatted = latest_entry['Date'].strftime('%B %d, %Y')
+st.subheader(f"📅 Reading Period: {start_formatted} — {end_formatted}")
 
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
@@ -148,6 +168,7 @@ with m_col3:
 
 # Detail breakdown box
 with st.expander("View Breakdown Details"):
+    st.write(f"**Billing Cycle:** {start_formatted} to {end_formatted}")
     st.write(f"**Previous Reading:** {latest_entry['Previous Reading (kWh)']:,.2f} kWh")
     st.write(f"**Current Reading:** {latest_entry['Current Reading (kWh)']:,.2f} kWh")
     st.write(f"**Formula Used:** $(Current - Previous) \\times Rate = Total$")
@@ -155,7 +176,6 @@ with st.expander("View Breakdown Details"):
 st.markdown("---")
 st.header("Historical Usage & Trends")
 
-# Graph and Data logs
 col_graph, col_table = st.columns([2, 1])
 
 with col_graph:
@@ -163,6 +183,10 @@ with col_graph:
     st.line_chart(data=chart_df, x='Date', y='Consumption (kWh)', use_container_width=True)
 
 with col_table:
-    display_df = df_history[['Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']].copy()
-    display_df['Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    display_df = df_history.copy()
+    display_df['Start Date'] = display_df['Start Date'].dt.strftime('%Y-%m-%d')
+    display_df['End Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
+    
+    # Show both coverage columns in historical logs
+    final_table_df = display_df[['Start Date', 'End Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']]
+    st.dataframe(final_table_df, use_container_width=True, hide_index=True)
