@@ -3,28 +3,23 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
-# Page Configuration
 st.set_page_config(page_title="Submeter Billing", page_icon="⚡", layout="wide")
 
 DB_FILE = "billing_history.csv"
 
-# Initialize session state for tracking login status
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# Load data helper
 def load_data():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
         df['Date'] = pd.to_datetime(df['Date'])
-        # Ensure Start Date exists for backwards compatibility
         if 'Start Date' in df.columns:
             df['Start Date'] = pd.to_datetime(df['Start Date'])
         else:
             df['Start Date'] = df['Date'] - timedelta(days=30)
         return df.sort_values(by='Date', ascending=False).reset_index(drop=True)
     else:
-        # Initial default data if file doesn't exist yet (including Start Date)
         today = datetime.now()
         thirty_days_ago = today - timedelta(days=30)
         initial_data = pd.DataFrame([{
@@ -39,7 +34,6 @@ def load_data():
         initial_data.to_csv(DB_FILE, index=False)
         return initial_data
 
-# Save data helper
 def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate):
     df = load_data()
     consumption = curr_r - prev_r
@@ -55,14 +49,12 @@ def save_new_reading(start_date_str, end_date_str, prev_r, curr_r, current_rate)
         "Total Bill (₱)": total_bill
     }])
     
-    # Overwrite if an entry with the exact same end date already exists
     if pd.to_datetime(end_date_str) in df['Date'].values:
         df = df[df['Date'] != pd.to_datetime(end_date_str)]
         
     updated_df = pd.concat([new_row, df], ignore_index=True)
     updated_df.to_csv(DB_FILE, index=False)
 
-# Delete single entry helper
 def delete_entry(index_to_drop):
     df = load_data()
     df = df.drop(index=index_to_drop)
@@ -72,7 +64,6 @@ def delete_entry(index_to_drop):
     else:
         df.to_csv(DB_FILE, index=False)
 
-# App Init
 df_history = load_data()
 latest_entry = df_history.iloc[0]
 
@@ -153,7 +144,6 @@ if st.session_state.logged_in:
 # --- PUBLIC CLIENT VIEW ---
 st.header(f"Current Statement Summary ({latest_entry['Date'].strftime('%B %Y')})")
 
-# Displays the coverage period cleanly right above the consumption metrics card layout
 start_formatted = latest_entry['Start Date'].strftime('%B %d, %Y')
 end_formatted = latest_entry['Date'].strftime('%B %d, %Y')
 st.subheader(f"Reading Period: {start_formatted} → {end_formatted}")
@@ -166,7 +156,6 @@ with m_col2:
 with m_col3:
     st.metric(label="Total Amount Due", value=f"₱{latest_entry['Total Bill (₱)']:,.2f}")
 
-# Detail breakdown box
 with st.expander("View Breakdown Details"):
     st.write(f"**Billing Cycle:** {start_formatted} to {end_formatted}")
     st.write(f"**Previous Reading:** {latest_entry['Previous Reading (kWh)']:,.2f} kWh")
@@ -187,6 +176,5 @@ with col_table:
     display_df['Start Date'] = display_df['Start Date'].dt.strftime('%Y-%m-%d')
     display_df['End Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
     
-    # Show both coverage columns in historical logs
     final_table_df = display_df[['Start Date', 'End Date', 'Consumption (kWh)', 'Rate (₱)', 'Total Bill (₱)']]
     st.dataframe(final_table_df, use_container_width=True, hide_index=True)
